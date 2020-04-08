@@ -496,3 +496,229 @@ _______________________________________________________________________
 </FrameLayout>
 _______________________________________________________________________
 
+任务三
+
+解析JSON数据
+首先在 Utility 类中添加一个用于解析天气 JSON 数据的方法，如下所示：
+
+public class Utility {
+    ...
+    /**
+     * 将返回的JSON数据解析成Weather实体类
+     */
+    public static Weather handleWeatherResponse(String response){
+        try{
+            JSONObject jsonObject = new JSONObject(response);
+            JSONArray jsonArray = jsonObject.getJSONArray("HeWeather");
+            String weatherContent = jsonArray.getJSONObject(0).toString();
+            return new Gson().fromJson(weatherContent, Weather.class);  // 将JSON数据解析成Weather对象
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+        return null;
+    }
+}
+以上代码提供了handleWeatherResponse()方法，该方法先通过 JSONObject 和 JSONArray 将天气数据中的主体内容解析出来，即：
+
+{
+    "basic": {},
+    "update": {},
+    "status": "ok",
+    "now": {},
+    "daily_forecast": [],
+    "aqi": {},
+    "suggestion": {},
+}
+之前我们已经按照上面的数据格式定义过相应的 GSON 实体类，所以这里只需要调用fromJson()方法就能直接将 JSON 数据转换成 Weather 对象了。
+
+在活动中将数据显示到界面
+接下来要完成的工作是在活动中请求天气数据，并将数据展示到界面上。
+
+修改 WeatherActivity 中的代码：
+
+public class WeatherActivity extends AppCompatActivity {
+    private ScrollView weatherLayout;
+    private TextView titleCity;
+    private TextView titleUpdateTime;
+    private TextView degreeText;
+    private TextView weatherInfoText;
+    private LinearLayout forecastLayout;
+    private TextView aqiText;
+    private TextView pm25Text;
+    private TextView comfortText;
+    private TextView carWashText;
+    private TextView sportText;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_weather);
+        //初始化各组件
+        weatherLayout = findViewById(R.id.weather_layout);
+        titleCity = findViewById(R.id.title_city);
+        titleUpdateTime = findViewById(R.id.title_update_time);
+        degreeText = findViewById(R.id.degree_text);
+        weatherInfoText = findViewById(R.id.weather_info_text);
+        forecastLayout = findViewById(R.id.forecast_layout);
+        aqiText = findViewById(R.id.aqi_text);
+        pm25Text = findViewById(R.id.pm25_text);
+        comfortText = findViewById(R.id.comfort_text);
+        carWashText = findViewById(R.id.car_wash_text);
+        sportText = findViewById(R.id.sport_text);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        String weatherString = prefs.getString("weather",null);
+        if(weatherString != null){
+            //有缓存时直接解析天气数据
+            Weather weather = Utility.handleWeatherResponse(weatherString);
+            showWeatherInfo(weather);
+        }else{
+            //无缓存时去服务器查询数据
+            String weatherId = getIntent().getStringExtra("weather_id");
+            weatherLayout.setVisibility(View.INVISIBLE);    // 暂时将ScrollView设为不可见
+            requestWeather(weatherId);
+        }
+    }
+    /**
+     * 根据天气Id请求城市天气信息
+     */
+    public void requestWeather(final String weatherId){
+        String weatherUrl = "http://guolin.tech/api/weather?cityid=" + weatherId
+                + "&key=6ebfd087db8144cbaab3884bb8f4b19d"; // 这里的key设置为第一个实训中获取到的API Key
+        // 组装地址并发出请求
+        HttpUtil.sendOkHttpRequest(weatherUrl, new Callback() {
+            @Override
+            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                final String responseText = response.body().string();
+                final  Weather weather = Utility.handleWeatherResponse(responseText);   // 将返回数据转换为Weather对象
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if(weather!=null && "ok".equals(weather.status)){
+                            //缓存有效的weather对象(实际上缓存的是字符串)
+                            SharedPreferences.Editor editor = PreferenceManager
+                                    .getDefaultSharedPreferences(WeatherActivity.this).edit();
+                            editor.putString("weather",responseText);
+                            editor.apply();
+                            showWeatherInfo(weather);   // 显示内容
+                        }else{
+                            Toast.makeText(WeatherActivity.this, "获取天气信息失败", Toast.LENGTH_SHORT).show();
+                        }
+                    }
+                });
+            }
+            @Override
+            public void onFailure(@NotNull Call call, @NotNull IOException e) {
+                e.printStackTrace();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(WeatherActivity.this, "获取天气信息失败", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+        });
+    }
+    /**
+     * 处理并展示Weather实体类中的数据
+     * @param weather
+     */
+    private void showWeatherInfo(Weather weather){
+        // 从Weather对象中获取数据
+        String cityName = weather.basic.cityName;
+        String updateTime = weather.basic.update.updateTime.split(" ")[1]; //按24小时计时的时间
+        String degree = weather.now.temperature + "°C";
+        String weatherInfo = weather.now.more.info;
+        // 将数据显示到对应控件上
+        titleCity.setText(cityName);
+        titleUpdateTime.setText(updateTime);
+        degreeText.setText(degree);
+        weatherInfoText.setText(weatherInfo);
+        forecastLayout.removeAllViews();
+        for(Forecast forecast:weather.forecastList){    // 循环处理每天的天气信息
+            View view = LayoutInflater.from(this).inflate(R.layout.forecast_item,forecastLayout,false);
+            // 加载布局
+            TextView dateText = view.findViewById(R.id.date_text);
+            TextView infoText = view.findViewById(R.id.info_text);
+            TextView maxText = view.findViewById(R.id.max_text);
+            TextView minText = view.findViewById(R.id.min_text);
+            // 设置数据
+            dateText.setText(forecast.date);
+            infoText.setText(forecast.more.info);
+            maxText.setText(forecast.temperature.max);
+            minText.setText(forecast.temperature.min);
+            // 添加到父布局
+            forecastLayout.addView(view);
+        }
+        if(weather.aqi != null){
+            aqiText.setText(weather.aqi.city.aqi);
+            pm25Text.setText(weather.aqi.city.pm25);
+        }
+        String comfort = "舒适度: " + weather.suggestion.comfort.info;
+        String carWash = "洗车指数: " + weather.suggestion.carWash.info;
+        String sport = "运动建议: "+ weather.suggestion.sport.info;
+        comfortText.setText(comfort);
+        carWashText.setText(carWash);
+        sportText.setText(sport);
+        weatherLayout.setVisibility(View.VISIBLE);  // 将天气信息设置为可见
+    }
+}
+这个活动中的代码比较长，但是逻辑相对比较清晰。首先在OnCreate()方法中获取一些控件的实例，然后尝试从本地缓存中读取天气数据。如果本地没有缓存就从 Intent 中取出天气 id ，并调用requestWeather()方法来从服务器请求天气数据。如果缓存中有数据则直接解析并显示天气数据。
+
+注意：请求数据的时候先将 ScrollView 隐藏，否则空数据的界面看上去会非常奇怪。
+
+requestWeather()方法中先是使用了参数中传入的天气 id 和之前申请的 API Key 进行组装，拼出一个接口地址，接着调用 HttpUtil.sendOkHttpRequest()方法来向该地址发出请求，服务器会将相应城市的天气信息以 JSON 格式返回。然后我们在onResponse()回调中先调用 Utility.handleWeatherResponse()方法将返回的 JSON 数据转换成 Weather 对象，再将当前线程切换到主线程。然后进行判断，如果服务器返回的 status 是 ok ，就说明请求是成功的，此时将返回的数据存到 SharedPreferences 中，并调用showWeatherInfo()方法来进行内容显示。
+
+showWeatherInfo()方法中的逻辑比较简单，就是从 Weather 对象中获取数据，然后显示到相应的控件上。
+
+注意：在未来几天天气预报的部分我们使用了一个 for 循环来处理每天的天气信息，在循环中动态加载 forecast.xml 布局并设置相应的数据，然后添加到父布局中。设置完所有的数据之后，要记得将 ScrollView 重新设置为可见。
+
+从省市县列表跳转到天气界面
+实现这样的跳转，需要修改 ChooseAreaFragment 中的代码，如下所示：
+
+public class ChooseAreaFragment extends Fragment {
+    ...
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        // 设置 ListView 和 Button 的点击事件
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (currentLevel == LEVEL_PROVINCE) {
+                    selectedProvince = provinceList.get(position);
+                    queryCities();
+                } else if (currentLevel == LEVEL_CITY) {
+                    selectedCity = cityList.get(position);
+                    queryCounties();
+                }else if(currentLevel==LEVEL_COUNTY){
+                    String weatherId = countyList.get(position).getWeatherId();
+                    Intent intent = new Intent(getActivity(), WeatherActivity.class);
+                    intent.putExtra("weather_id",weatherId);    // 向intent传入WeatherId
+                    startActivity(intent);
+                    getActivity().finish();
+                }
+            }
+        });
+        ...
+    }
+    ...
+}
+非常简单，以上代码在onItemClick()方法中加入了一个 if 判断，如果当前级别是 LEVEL_COUNTY ，就启动 WeatherActivity ，并把当前选中的县的 id 传递过去。
+
+加入缓存数据的判断
+在应用刚启动时，需要判断是否有缓存数据，进而决定进入哪个页面。修改 MainActivity 中的代码，如下所示：
+
+public class MainActivity extends AppCompatActivity {
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(this);
+        // 从 SharedPreferences 中读取缓存数据
+        if(prefs.getString("weather",null)!=null){
+            // 之前请求过则直接跳转到天气信息
+            Intent intent = new Intent(this, WeatherActivity.class);
+            startActivity(intent);
+            finish();
+        }
+    }
+}
