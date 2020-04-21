@@ -1,0 +1,109 @@
+由于我们是通过网络接口来获取全国省市县数据，因此必须要添加网络访问权限。
+
+用 Android Studio 打开实训项目。在 Android 模式目录下找到 AndroidManifest.xml 文件，打开并在其中添加如下权限声明代码：
+
+<uses-permission android:name="android.permission.INTERNET" />
+添加位置如图 22 所示：
+
+
+
+图2 权限声明添加位置
+添加与服务器交互的代码
+根据之前的介绍，OkHttp 在接口封装上做得简单易用，是广大 Android 开发者的首选网络通信库，因此这里我们选用 OkHttp 来实现。
+
+在之前的实训中我们已经在 build.gradle 文件中添加了 OkHttp3 的依赖。此处可以直接进行编码。
+
+在 com.coolweather.android/util 包下新建一个 HttpUtil 类（如果 util 不存在，可以再新建），并添加如下代码：
+
+public class HttpUtil {
+    // 使用OkHttp创建一个访问服务区数据的工具类
+    public static void sendOkHttpRequest(String address, okhttp3.Callback callback) {
+        OkHttpClient client = new OkHttpClient();    // 创建 OKHttpClient 对象
+        Request request = new Request.Builder().url(address).build();    // 解析请求地址
+        client.newCall(request).enqueue(callback);    // 注册用于处理服务器相应的回调
+    }
+}
+如果代码报红，可以把鼠标放到代码左侧，然后通过 Alt+Enter，进行导包操作。
+
+
+
+图3 快捷键导包
+以上代码仅仅使用 33 行就完成了和服务器的交互，可见 OkHttp 的封装是非常出色的。现在发起一条 HTTP 请求就只需要调用 sendOkHttpRequest() 方法即可。
+
+解析 JSON 格式数据
+由于服务器返回的数据都是 JSON 格式的，所以需要一个工具类来解析和处理这类数据。
+
+在 util 包下新建一个 Utility 类，添加如下代码：
+
+public class Utility {
+    /**
+     * 解析和处理服务器返回的省级数据
+     */
+    public static boolean handleProvinceResponse(String response) {
+        if (!TextUtils.isEmpty(response)) {  // 数据非空
+            try {
+                JSONArray allProvinces = new JSONArray(response);   // 创建一个用于解析的 JSON 数组
+                for (int i = 0; i < allProvinces.length(); i++) {
+                    JSONObject provinceObject = allProvinces.getJSONObject(i);  // 获取每一个 JSON 对象
+                    Province province = new Province();
+                    province.setProvinceName(provinceObject.getString("name")); // 将 JSON 对象中的 name 字段赋给 ProvinceName
+                    province.setProvinceCode(provinceObject.getInt("id"));  // 将 JSON 对象中的 id 字段赋给 ProvinceCode
+                    province.save(); // 将数据存到数据库中
+                }
+                return true;
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+        return false;
+    }
+    /**
+     * 解析和处理服务器返回的市级数据
+     */
+    public static boolean handleCityResponse(String response, int provinceId) {
+        if (!TextUtils.isEmpty(response)) {
+            try {
+                JSONArray allCity = new JSONArray(response);
+                for (int i = 0; i < allCity.length(); i++) {
+                    JSONObject cityObject = allCity.getJSONObject(i);
+                    City city = new City();
+                    city.setCityName(cityObject.getString("name"));
+                    city.setCityCode(cityObject.getInt("id"));
+                    city.setProvinceId(provinceId);
+                    city.save();
+                }
+                return true;
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+        return false;
+    }
+    /**
+     * 解析和处理服务器返回的县级数据
+     */
+    public static boolean handleCountyResponse(String response, int cityId) {
+        if (!TextUtils.isEmpty(response)) {
+            try {
+                JSONArray allCounties = new JSONArray(response);
+                for (int i = 0; i < allCounties.length(); i++) {
+                    JSONObject countyObject = allCounties.getJSONObject(i);
+                    County county = new County();
+                    county.setCountyName(countyObject.getString("name"));
+                    county.setWeatherId(countyObject.getString("weather_id"));
+                    county.setCityId(cityId);
+                    county.save();
+                }
+                return true;
+            } catch (JSONException e) {
+                e.printStackTrace();
+            }
+        }
+        return false;
+    }
+}
+
+————————————————————————————————————————————————————————————————————————————————————————————————————————————————-
+
+
+第二关
