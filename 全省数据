@@ -107,3 +107,277 @@ public class Utility {
 
 
 第二关
+
+新建 choose_area.xml 
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical" android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFF">
+    <!-- 定义头布局 -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="?attr/colorPrimary">
+        <!-- 显示标题内容 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:id="@+id/title_text"
+            android:layout_centerInParent="true"
+            android:textColor="#FFF"
+            android:textSize="20sp"/>
+        <!-- 执行返回操作的按钮 -->
+        <Button
+            android:layout_width="25dp"
+            android:layout_height="25dp"
+            android:layout_marginLeft="10dp"
+            android:id="@+id/back_button"
+            android:background="@drawable/ic_back"
+            android:layout_alignParentLeft="true"
+            android:layout_centerVertical="true"/>
+    </RelativeLayout>
+    <!-- 显示省市县的数据 -->
+    <ListView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/list_view"/>
+</LinearLayout>
+——————————————————————————————————————————————————————————————
+
+这行代码是用来设置 Button 的背景，需要准备一张背景图片。用系统的文件管理器打开项目所在目录可以看到我们已经准备好了一张名为 ic_back.png 的图片。你只需要将其拖动到 AS 中 app/res/drawable文件夹下，并在 AS 弹出的对话框中选择 OK 即可。
+
+
+
+图3 添加图片
+可以看到 ic_back.png 文件已经出现在 res/drawable 目录下，而且布局文件中的红色错误也已经消失了。
+
+编写遍历省市县的碎片
+在 app/java/com.coolweather.android 目录下新建 ChooseAreaFragment ，其父类为 Fragment ，在其中添加如下代码：
+
+public class ChooseAreaFragment extends Fragment {
+    /**
+     * 宏定义试图的不同级别
+     */
+    public static final int LEVEL_PROVINCE = 0;
+    public static final int LEVEL_CITY = 1;
+    public static final int LEVEL_COUNTY = 2;
+    /**
+     * 准备一些控件
+     */
+    private ProgressDialog progressDialog;
+    private TextView titleText;
+    private Button backButton;
+    private ListView listView;
+    private ArrayAdapter<String> adapter;
+    private List<String> dataList = new ArrayList<>();
+    /**
+     * 省、市、县的列表
+     */
+    private List<Province> provinceList;
+    private List<City> cityList;
+    private List<County> countyList;
+    // 选中的省
+    private Province selectedProvince;
+    // 选中的市
+    private City selectedCity;
+    // 当前选中的级别
+    private int currentLevel;
+    @Nullable
+    @Override
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
+        View view = inflater.inflate(R.layout.choose_area, container, false);
+        titleText = view.findViewById(R.id.title_text);
+        backButton = view.findViewById(R.id.back_button);
+        listView = view.findViewById(R.id.list_view);   //获取控件的实例
+        adapter = new ArrayAdapter<>(getContext(), android.R.layout.simple_list_item_1, dataList);  //初始化 ArrayAdapter
+        listView.setAdapter(adapter);
+        return view;
+    }
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        // 设置 ListView 和 Button 的点击事件
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (currentLevel == LEVEL_PROVINCE) {
+                    selectedProvince = provinceList.get(position);
+                    queryCities();
+                } else if (currentLevel == LEVEL_CITY) {
+                    selectedCity = cityList.get(position);
+                    queryCounties();
+                }
+            }
+        });
+        backButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (currentLevel == LEVEL_COUNTY) {
+                    queryCities();
+                } else if (currentLevel == LEVEL_CITY) {
+                    queryProvinces();
+                }
+            }
+        });
+        queryProvinces();   // 加载省级数据
+    }
+    /**
+     * 查询全国所有的省，优先从数据库中查，如果没有查询到再到服务器上查
+     */
+    private void queryProvinces() {
+        titleText.setText("中国");    // 设置头布局标题
+        backButton.setVisibility(View.GONE);    // 隐藏返回按钮
+        provinceList = DataSupport.findAll(Province.class); // 调用 LitePal 查询接口来从数据库中读取省级数据
+        if (provinceList.size() > 0) {  // 读到了则显示到界面上
+            dataList.clear();
+            for (Province province : provinceList) {
+                dataList.add(province.getProvinceName());
+            }
+            adapter.notifyDataSetChanged();
+            listView.setSelection(0);
+            currentLevel = LEVEL_PROVINCE;
+        } else {    // 没有读到则从服务器上获取
+            String address = "http://guolin.tech/api/china";    // 请求地址
+            queryFromServer(address, "province");   // 后面会定义此方法
+        }
+    }
+    /**
+     * 查询选中县内所有的市，优先从数据库中查，如果没有查询到再到服务器上查
+     */
+    private void queryCities() {
+        titleText.setText(selectedProvince.getProvinceName());
+        backButton.setVisibility(View.VISIBLE);
+        cityList = DataSupport.where("provinceId=?", String.valueOf(selectedProvince.getId()))
+                .find(City.class);
+        if (cityList.size() > 0) {
+            dataList.clear();
+            for (City city : cityList) {
+                dataList.add(city.getCityName());
+            }
+            adapter.notifyDataSetChanged();
+            listView.setSelection(0);
+            currentLevel = LEVEL_CITY;
+        } else {
+            int provinceCode = selectedProvince.getProvinceCode();
+            String address = "http://guolin.tech/api/china/" + provinceCode;
+            queryFromServer(address, "city");
+        }
+    }
+    /**
+     * 查询选中市内所有的县，优先从数据库中查询，如果没有查询到就从服务器中查询数据
+     */
+    private void queryCounties() {
+        titleText.setText(selectedCity.getCityName());
+        backButton.setVisibility(View.VISIBLE);
+        countyList = DataSupport.where("cityid=?", String.valueOf(selectedCity.getId()))
+                .find(County.class);
+        if (countyList.size() > 0) {
+            dataList.clear();
+            for (County county : countyList) {
+                dataList.add(county.getCountyName());
+            }
+            adapter.notifyDataSetChanged();
+            listView.setSelection(0);
+            currentLevel = LEVEL_COUNTY;
+        } else {
+            int provinceCode = selectedProvince.getProvinceCode();
+            int cityCode = selectedCity.getCityCode();
+            String address = "http://guolin.tech/api/china/" + provinceCode + "/" + cityCode;
+            queryFromServer(address, "county");
+        }
+    }
+    /**
+     * 根据传入的地址和类型从服务器中查询省市县数据
+     */
+    private void queryFromServer(String address, final String type) {
+        showProgressDialog();
+        HttpUtil.sendOkHttpRequest(address, new Callback() {    // 向服务器发送请求
+            @Override
+            public void onFailure(okhttp3.Call call, IOException e) {   //处理加载失败的情况
+                getActivity().runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        closeProgressDialog();
+                        Toast.makeText(getContext(), "加载失败", Toast.LENGTH_SHORT).show();
+                    }
+                });
+            }
+            @Override
+            public void onResponse(okhttp3.Call call, Response response) throws IOException {
+                // 接收响应的数据并做对应处理
+                String responseText = response.body().string();
+                boolean result = false;
+                if ("province".equals(type)) {
+                    result = Utility.handleProvinceResponse(responseText);
+                } else if ("city".equals(type)) {
+                    result = Utility.handleCityResponse(responseText, selectedProvince.getId());
+                } else if ("county".equals(type)) {
+                    result = Utility.handleCountyResponse(responseText, selectedCity.getId());
+                }
+                if (result) {
+                    getActivity().runOnUiThread(new Runnable() {    // 从子线程切换到主线程
+                        @Override
+                        public void run() {
+                            closeProgressDialog();
+                            if ("province".equals(type)) {
+                                queryProvinces();   // 重新加载数据
+                            } else if ("city".equals(type)) {
+                                queryCities();
+                            } else if ("county".equals(type)) {
+                                queryCounties();
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    }
+    /**
+     * 显示进度对话框
+     */
+    private void showProgressDialog() {
+        if (progressDialog == null) {
+            progressDialog = new ProgressDialog(getActivity());
+            progressDialog.setMessage("正在加载...");
+            progressDialog.setCanceledOnTouchOutside(false);
+        }
+    }
+    /**
+     * 关闭进度对话框
+     */
+    private void closeProgressDialog() {
+        if (progressDialog != null) {
+            progressDialog.dismiss();
+        }
+    }
+}
+这里代码看似很多，但是并不复杂，逻辑关系比较清晰，注释里已经有详细介绍。主要实现的功能是当点击了某个省的时候会进入 ListView 的 onItemClick()  方法中，这时候会根据当前的视图级别来判断调用的 query 方法是哪一个。当点击返回按钮时，会对当前 ListView 的列表级别进行判断。对应地返回上一级列表（省级的返回按钮是隐藏的）。
+
+将碎片添加至界面
+上一部分已经完成了遍历全国省市县的碎片，但是碎片是无法直接显示在界面上的。还需要将其添加到活动里。
+
+首先要修改 activity_main.xml 中的代码，如下所示：
+
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+    <!-- 添加碎片并使其充满整个布局 -->
+    <fragment
+        android:id="@+id/choose_area_fragment"
+        android:name="com.coolweather.android.ChooseAreaFragment"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+</FrameLayout>
+以上代码定义了一个 FrameLayout ，然后将 ChooseAreaFragment 添加进来并使其充满整个布局。
+
+另外，之前在碎片的布局里已经定义了一个标题栏，所以需要关掉原生的 ActionBar 。修改 res/values/styles.xml 中的代码，将这一行：
+
+<style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+修改为：
+
+<style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+最后，由于郭霖老师提供的服务器所用协议还是 http 协议，但是从 Android 6.0 开始引入了对 Https 的推荐支持，而到了　Android 9.0 的系统上面默认所有 Http 的请求都无法响应。所以需要手动解决一下这个问题，在　AndroidManifest.xml 的 application 下添加一行代码(注意写在后面的尖括号内)：
+
+android:usesCleartextTraffic=“true”
+
