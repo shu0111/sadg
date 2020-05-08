@@ -1,0 +1,95 @@
+首先要修改 activity_weather.xml 中的代码，如下所示：
+
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/colorPrimary">
+    ...
+    <!-- 添加下拉刷新 -->
+    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+        android:id="@+id/swipe_refresh"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+        <!-- 通过滚动方式查看屏幕以外内容 -->
+        <ScrollView
+            android:id="@+id/weather_layout"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scrollbars="none"
+            android:overScrollMode="never">
+            ...
+        </ScrollView>
+    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+</FrameLayout>
+以上代码在 ScrollView 的外面嵌套了一层 SwipeRefreshLayout，使其拥有下拉刷新的功能。
+
+添加刷新逻辑
+修改 WeatherActivity ，添加更新天气的处理逻辑，代码如下：
+
+public class WeatherActivity extends AppCompatActivity {
+    ...
+    public SwipeRefreshLayout swipeRefreshLayout;
+    private String weatherId;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        ...
+        //初始化各组件
+        swipeRefreshLayout = findViewById(R.id.swipe_refresh);
+        swipeRefreshLayout.setColorSchemeResources(R.color.colorPrimary);   // 设置下拉刷新进度条的颜色
+        ...
+        if(weatherString != null){
+            //有缓存时直接解析天气数据
+            Weather weather = Utility.handleWeatherResponse(weatherString);
+            weatherId = weather.basic.weatherId;
+            showWeatherInfo(weather);
+        }else{
+            //无缓存时去服务器查询数据
+            weatherId = getIntent().getStringExtra("weather_id");
+            weatherLayout.setVisibility(View.INVISIBLE);
+            requestWeather(weatherId);
+        }
+        swipeRefreshLayout.setOnRefreshListener(new SwipeRefreshLayout.OnRefreshListener() {
+            @Override
+            public void onRefresh() {   // 设置下拉刷新监听器
+                requestWeather(weatherId);
+            }
+        });
+        ...
+    }
+    /**
+     * 根据天气Id请求城市天气信息
+     */
+    public void requestWeather(final String weatherId){
+        ...
+        // 组装地址并发出请求
+        HttpUtil.sendOkHttpRequest(weatherUrl, new Callback() {
+            @Override
+            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                ...
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        if(weather!=null && "ok".equals(weather.status)){
+                            ...
+                        }else{
+                            ...
+                        }
+                        swipeRefreshLayout.setRefreshing(false);    // 表示刷新事件结束并隐藏刷新进度条
+                    }
+                });
+            }
+            @Override
+            public void onFailure(@NotNull Call call, @NotNull IOException e) {
+                e.printStackTrace();
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        Toast.makeText(WeatherActivity.this, "获取天气信息失败", Toast.LENGTH_SHORT).show();
+                        swipeRefreshLayout.setRefreshing(false);
+                    }
+                });
+            }
+        });
+        loadBingPic();
+    }
