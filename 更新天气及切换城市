@@ -93,3 +93,132 @@ public class WeatherActivity extends AppCompatActivity {
         });
         loadBingPic();
     }
+——————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————————
+
+添加按钮要修改布局，所以修改 title.xml 文件中的内容，代码如下：
+
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="?attr/actionBarSize">
+    <!-- 居左显示切换城市的按钮 -->
+    <Button
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:id="@+id/nav_button"
+        android:layout_marginLeft="10dp"
+        android:layout_alignParentLeft="true"
+        android:layout_centerVertical="true"
+        android:background="@drawable/ic_home"/>
+    ...
+</RelativeLayout>
+这里的代码添加了一个 Button 作为切换城市的按钮，并让它居左显示。添加之后注意到 AS 将 "@drawable/ic_home" 标红，原因是找不到这个符号，所以要往 drawable 文件夹中添加 ic_home 图标。这一文件放在和 CoolWeather 项目相同的路径下：
+
+Desktop/workspace/myshixun/ic_home.png
+在文件管理器中打开这一目录并将 ic_home.png 文件拖动到 AS 中 drawable 目录下即可。
+
+加入滑动菜单
+在 activity_weather.xml 布局文件中加入滑动菜单，代码如下：
+
+<FrameLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/colorPrimary">
+    ...
+    <!-- 添加滑动菜单 -->
+    <androidx.drawerlayout.widget.DrawerLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:id="@+id/drawer_layout">
+        <!-- 添加下拉刷新 -->
+        <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+            android:id="@+id/swipe_refresh"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent">
+            <!-- 通过滚动方式查看屏幕以外内容 -->
+            <ScrollView
+                android:id="@+id/weather_layout"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:scrollbars="none"
+                android:overScrollMode="never">
+                ...
+            </ScrollView>
+        </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+        <!-- 滑动菜单中的内容 -->
+        <fragment
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:id="@+id/choose_area_fragment"
+            android:name="com.coolweather.android.ChooseAreaFragment"
+            android:layout_gravity="start"/>
+    </androidx.drawerlayout.widget.DrawerLayout>
+</FrameLayout>
+以上代码在 SwipeRefreshLayout 的外面又嵌套了一层 DrawerLayout 。 DrawerLayout 中的第一个子控件用于主屏幕中内容的显示，第二个子控件用于滑动菜单中内容的显示。因此这里在第二个子控件的位置添加了用于遍历省市县数据的碎片。
+
+添加打开菜单逻辑
+在 WeatherActivity 中添加滑动菜单的处理逻辑，代码如下：
+
+public class WeatherActivity extends AppCompatActivity {
+    ...
+    public DrawerLayout drawerLayout;
+    private Button navButton;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        ...
+        //初始化各组件
+        drawerLayout = findViewById(R.id.drawer_layout);
+        navButton = findViewById(R.id.nav_button);
+        ...
+        navButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                drawerLayout.openDrawer(GravityCompat.START);   // 打开滑动菜单
+            }
+        });
+    }
+    ...
+}
+以上代码逻辑很简单，首先在 onCreate()方法中获取新增的 DrawerLayout 和 Button 的实例，然后在 Button 的点击事件中调用 DrawerLayout 的 openDrawer()方法打开滑动菜单就可以了。
+
+添加切换城市逻辑
+以上的部分已经实现了打开滑动菜单，不过打开之后还要能切换城市。由于之前选中某个城市后会从 ChooseAreaFragment 跳转到 WeatherActivity，但是现在我们本来就在 WeatherActivity 中，并不需要跳转。所以要在 ChooseAreaFragment 中添加不同的处理逻辑，代码如下：
+
+public class ChooseAreaFragment extends Fragment {
+    ...
+    @Override
+    public void onActivityCreated(@Nullable Bundle savedInstanceState) {
+        super.onActivityCreated(savedInstanceState);
+        // 设置 ListView 和 Button 的点击事件
+        listView.setOnItemClickListener(new AdapterView.OnItemClickListener() {
+            @Override
+            public void onItemClick(AdapterView<?> parent, View view, int position, long id) {
+                if (currentLevel == LEVEL_PROVINCE) {
+                    selectedProvince = provinceList.get(position);
+                    queryCities();
+                } else if (currentLevel == LEVEL_CITY) {
+                    selectedCity = cityList.get(position);
+                    queryCounties();
+                }else if(currentLevel==LEVEL_COUNTY){
+                    String weatherId = countyList.get(position).getWeatherId();
+                    if(getActivity() instanceof WeatherActivity){   // 判断碎片的位置
+                        //该碎片在WeatherActivity中，只需要刷新该活动
+                        WeatherActivity activity = (WeatherActivity)getActivity();
+                        activity.drawerLayout.closeDrawers();
+                        activity.swipeRefreshLayout.setRefreshing(true);
+                        activity.requestWeather(weatherId);
+                    }else if(getActivity() instanceof MainActivity){
+                        Intent intent = new Intent(getActivity(), WeatherActivity.class);
+                        intent.putExtra("weather_id",weatherId);    // 向intent传入WeatherId
+                        startActivity(intent);
+                        getActivity().finish();
+                    }
+                }
+            }
+        });
+        ...
+    }
+    ...
+}
